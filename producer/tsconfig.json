@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2021",
+    "outDir": "./dist",
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

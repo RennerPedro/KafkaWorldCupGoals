@@ -1,0 +1,100 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: livescore-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - livescore-net
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: livescore-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    networks:
+      - livescore-net
+
+  redis:
+    image: redis:latest
+    container_name: livescore-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - livescore-net
+
+  postgres:
+    image: postgres:latest
+    container_name: livescore-postgres
+    environment:
+      POSTGRES_DB: livescore
+      POSTGRES_USER: livescore
+      POSTGRES_PASSWORD: livescore
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    networks:
+      - livescore-net
+
+  api:
+    build:
+      context: ./api
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+    environment:
+      PORT: 3001
+      KAFKA_BROKERS: kafka:29092
+      REDIS_URL: redis://redis:6379
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: livescore
+      POSTGRES_USER: livescore
+      POSTGRES_PASSWORD: livescore
+      LIVESCORE_API_KEY: ${LIVESCORE_API_KEY}
+    deploy:
+      replicas: 2
+    networks:
+      - livescore-net
+
+  nginx:
+    build:
+      context: ./nginx
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+    networks:
+      - livescore-net
+
+  producer:
+    build:
+      context: ./producer
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_TOPIC: score-events
+    networks:
+      - livescore-net
+
+networks:
+  livescore-net:
+    driver: bridge
+
+volumes:
+  postgres-data:

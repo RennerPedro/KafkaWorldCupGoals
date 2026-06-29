@@ -1,0 +1,17 @@
+# Local secrets
+.env
+
+# Node
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+coverage/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/

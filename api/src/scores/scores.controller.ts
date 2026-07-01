@@ -5,11 +5,6 @@ import { ScoresService } from './scores.service';
 export class ScoresController {
   constructor(private readonly scoresService: ScoresService) {}
 
-  @Get('health')
-  health() {
-    return { service: 'api', status: 'ok', ts: new Date().toISOString() };
-  }
-
   @Get('matches')
   getAllMatches() {
     return this.scoresService.getAllMatches();

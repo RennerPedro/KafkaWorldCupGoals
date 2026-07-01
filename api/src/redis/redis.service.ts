@@ -60,6 +60,10 @@ export class RedisService implements OnModuleDestroy {
     return (results ?? []).map(([, v]) => v as Record<string, string>);
   }
 
+  async ping(): Promise<string> {
+    return this.state.ping();
+  }
+
   // ── Pub/Sub ────────────────────────────────────────────────────────────────
 
   async publishScoreUpdate(event: object): Promise<void> {

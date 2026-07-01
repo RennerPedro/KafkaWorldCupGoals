@@ -66,6 +66,8 @@ services:
       POSTGRES_USER: livescore
       POSTGRES_PASSWORD: livescore
       LIVESCORE_API_KEY: ${LIVESCORE_API_KEY}
+      KAFKA_DLQ_TOPIC: ${KAFKA_DLQ_TOPIC:-score-events-dlq}
+      KAFKA_CONSUMER_MAX_RETRIES: ${KAFKA_CONSUMER_MAX_RETRIES:-3}
     deploy:
       replicas: 2
     networks:

@@ -48,6 +48,28 @@ MATCHES.forEach((m) => {
   state[m.matchId] = { homeScore: 0, awayScore: 0, minute: 0, finished: false };
 });
 
+function logJson(level: 'info' | 'warn' | 'error', event: string, data: unknown = {}) {
+  const base = {
+    service: 'producer',
+    event,
+    ts: new Date().toISOString(),
+  };
+
+  const line = JSON.stringify(
+    data && typeof data === 'object' ? { ...base, ...data } : { ...base, data },
+  );
+
+  if (level === 'error') {
+    console.error(line);
+    return;
+  }
+  if (level === 'warn') {
+    console.warn(line);
+    return;
+  }
+  console.log(line);
+}
+
 function isLiveLikeStatus(status: string): boolean {
   return ['LIVE', 'IN_PLAY', 'PAUSED', 'EXTRA_TIME', 'PENALTY_SHOOTOUT'].includes(status);
 }
@@ -113,7 +135,7 @@ async function emitSimulatedTick(producer: Producer, topic: string): Promise<voi
   // Pick a random non-finished match
   const active = MATCHES.filter((m) => !state[m.matchId].finished);
   if (!active.length) {
-    console.log('[producer] All simulated matches finished');
+    logJson('info', 'all_simulated_matches_finished');
     return;
   }
 
@@ -143,11 +165,7 @@ async function emitSimulatedTick(producer: Producer, topic: string): Promise<voi
   };
 
   await publishEvent(producer, topic, event);
-
-  console.log(
-    `[producer][simulated] ${match.homeTeam} ${s.homeScore}-${s.awayScore} ${match.awayTeam}` +
-      ` | min ${s.minute}${s.finished ? ' FT' : ''}`,
-  );
+  logJson('info', 'simulated_event_published', event);
 }
 
 async function ensureTopic(kafka: Kafka): Promise<void> {
@@ -169,9 +187,13 @@ async function ensureTopic(kafka: Kafka): Promise<void> {
           },
         ],
       });
-      console.log('[producer] Topic score-events created (4 partitions, 24h retention)');
+      logJson('info', 'source_topic_created', {
+        topic: 'score-events',
+        partitions: 4,
+        retentionMs: 24 * 60 * 60 * 1000,
+      });
     } else {
-      console.log('[producer] Topic score-events already exists');
+      logJson('info', 'source_topic_already_exists', { topic: 'score-events' });
     }
   } finally {
     await admin.disconnect();
@@ -200,14 +222,18 @@ async function run(): Promise<void> {
 
   const producer: Producer = kafka.producer();
   await producer.connect();
+
   if (useRealApi && !apiToken) {
-    console.warn('[producer] USE_REAL_API=true but WORLD_CUP_API_TOKEN is empty, falling back to simulated mode');
+    logJson('warn', 'real_mode_enabled_without_token_fallback_to_simulated');
   }
 
   const shouldUseReal = useRealApi && Boolean(apiToken);
 
   if (shouldUseReal) {
-    console.log(`[producer] Connected to Kafka — mode=real (World Cup API), interval=${pollIntervalMs}ms`);
+    logJson('info', 'producer_connected_mode_real', {
+      apiBaseUrl,
+      pollIntervalMs,
+    });
 
     let inFlight = false;
     const poll = async () => {
@@ -216,20 +242,19 @@ async function run(): Promise<void> {
       try {
         const matches = await fetchWorldCupMatches(apiBaseUrl, apiToken);
         if (!matches.length) {
-          console.log('[producer][real] World Cup API returned no matches for current query window');
+          logJson('info', 'world_cup_api_no_matches_current_window');
           return;
         }
 
         for (const match of matches) {
           const event = mapRealMatchToScoreEvent(match);
           await publishEvent(producer, topic, event);
-          console.log(
-            `[producer][real] ${event.homeTeam} ${event.homeScore}-${event.awayScore} ${event.awayTeam}` +
-              ` | min ${event.minute}`,
-          );
+          logJson('info', 'real_event_published', event);
         }
       } catch (error) {
-        console.error('[producer][real] Polling failed, emitting one simulated tick as fallback', error);
+        logJson('error', 'real_poll_failed_fallback_to_simulated_tick', {
+          error: error instanceof Error ? error.message : 'unknown error',
+        });
         await emitSimulatedTick(producer, topic);
       } finally {
         inFlight = false;
@@ -243,7 +268,7 @@ async function run(): Promise<void> {
     return;
   }
 
-  console.log('[producer] Connected to Kafka — mode=simulated');
+  logJson('info', 'producer_connected_mode_simulated');
   const loop = (): void => {
     const delay = 2000 + Math.random() * 3000; // 2–5 seconds
     setTimeout(async () => {
@@ -255,6 +280,8 @@ async function run(): Promise<void> {
 }
 
 run().catch((err) => {
-  console.error('[producer] Fatal error', err);
+  logJson('error', 'producer_fatal_error', {
+    error: err instanceof Error ? err.message : 'unknown error',
+  });
   process.exit(1);
 });

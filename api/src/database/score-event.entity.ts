@@ -26,6 +26,9 @@ export class ScoreEventEntity {
   @Column()
   minute: number;
 
+  @Column({ type: 'varchar', length: 16, default: 'simulated' })
+  source: 'real' | 'simulated';
+
   @CreateDateColumn({ name: 'recorded_at', type: 'timestamptz' })
   recordedAt: Date;
 }

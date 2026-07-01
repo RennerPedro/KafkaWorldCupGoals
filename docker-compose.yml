@@ -89,6 +89,10 @@ services:
     environment:
       KAFKA_BROKERS: kafka:29092
       KAFKA_TOPIC: score-events
+      USE_REAL_API: ${USE_REAL_API:-false}
+      WORLD_CUP_API_URL: ${WORLD_CUP_API_URL:-https://api.football-data.org/v4}
+      WORLD_CUP_API_TOKEN: ${WORLD_CUP_API_TOKEN:-}
+      WORLD_CUP_POLL_INTERVAL_MS: ${WORLD_CUP_POLL_INTERVAL_MS:-15000}
     networks:
       - livescore-net
 

@@ -30,8 +30,10 @@ export class RedisService implements OnModuleDestroy {
     awayScore: number;
     minute: number;
     timestamp: string;
+    source: 'real' | 'simulated';
   }): Promise<void> {
-    const { matchId, homeTeam, awayTeam, homeScore, awayScore, minute, timestamp } = event;
+    const { matchId, homeTeam, awayTeam, homeScore, awayScore, minute, timestamp, source } =
+      event;
     await this.state.hset(`match:${matchId}`, {
       matchId,
       homeTeam,
@@ -40,6 +42,7 @@ export class RedisService implements OnModuleDestroy {
       awayScore: String(awayScore),
       minute: String(minute),
       timestamp,
+      source,
     });
   }
 

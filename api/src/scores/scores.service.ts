@@ -13,6 +13,7 @@ export interface ScoreEvent {
   awayScore: number;
   minute: number;
   timestamp: string;
+  source: 'real' | 'simulated';
 }
 
 @Injectable()
@@ -58,6 +59,7 @@ export class ScoresService {
       homeScore: event.homeScore,
       awayScore: event.awayScore,
       minute: event.minute,
+      source: event.source,
     });
     await this.eventRepo.save(scoreEvent);
 

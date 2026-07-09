@@ -61,8 +61,12 @@ export class KafkaConsumer
     });
 
     await this.consumer.run({
+      autoCommit: false,
       eachMessage: async (payload) => {
-        await this.processWithRetries(payload);
+        const handled = await this.processWithRetries(payload);
+        if (handled) {
+          await this.commitOffset(payload);
+        }
       },
     });
 
@@ -91,9 +95,9 @@ export class KafkaConsumer
     this.logJson('dlq_topic_created', { topic: this.dlqTopic });
   }
 
-  private async processWithRetries(payload: EachMessagePayload): Promise<void> {
+  private async processWithRetries(payload: EachMessagePayload): Promise<boolean> {
     const { topic, partition, message } = payload;
-    if (!message.value) return;
+    if (!message.value) return true;
 
     if (this.isShuttingDown) {
       this.warnJson('skip_processing_during_shutdown', {
@@ -101,7 +105,7 @@ export class KafkaConsumer
         partition,
         offset: message.offset,
       });
-      return;
+      return false;
     }
 
     const rawValue = message.value.toString();
@@ -120,7 +124,7 @@ export class KafkaConsumer
             offset: message.offset,
           });
         }
-        return;
+        return true;
       } catch (error) {
         lastError = error;
         this.warnJson('message_processing_failed_attempt', {
@@ -135,6 +139,23 @@ export class KafkaConsumer
     }
 
     await this.publishToDlq(payload, rawValue, lastError);
+    return true;
+  }
+
+  private async commitOffset(payload: EachMessagePayload): Promise<void> {
+    const { topic, partition, message } = payload;
+    const currentOffset = Number.parseInt(message.offset, 10);
+    if (!Number.isFinite(currentOffset)) {
+      throw new Error(`Invalid Kafka offset: ${message.offset}`);
+    }
+
+    await this.consumer.commitOffsets([
+      {
+        topic,
+        partition,
+        offset: String(currentOffset + 1),
+      },
+    ]);
   }
 
   private async publishToDlq(
@@ -184,15 +205,33 @@ export class KafkaConsumer
   }
 
   private async handleEvent(event: ScoreEvent): Promise<void> {
-    await this.redisService.setMatchState(event);
-    await this.redisService.publishScoreUpdate(event);
-
-    this.scoresService.persistEvent(event).catch((err) => {
-      this.errorJson('persist_event_failed_async', {
+    // ADR: persist first in atomic transaction, then update cache.
+    // This ensures offset only commits after durable write and prevents
+    // state regression by allowing cache-layer checks before update.
+    try {
+      await this.scoresService.persistEvent(event);
+    } catch (err) {
+      this.errorJson('persist_event_failed_sync', {
+        eventId: event.eventId,
         matchId: event.matchId,
         error: err instanceof Error ? err.message : 'unknown error',
       });
-    });
+      throw err; // reject message, will trigger retry/DLQ
+    }
+
+    // Only after durable write, update cache and fan-out
+    const updated = await this.redisService.setMatchState(event);
+    if (!updated) {
+      this.warnJson('stale_event_skipped_cache_update', {
+        eventId: event.eventId,
+        matchId: event.matchId,
+        minute: event.minute,
+        timestamp: event.timestamp,
+      });
+      return;
+    }
+
+    await this.redisService.publishScoreUpdate(event);
   }
 
   async beforeApplicationShutdown(signal?: string) {
@@ -210,7 +249,7 @@ export class KafkaConsumer
     this.logJson('consumer_shutdown_start', { reason, signal: signal ?? null });
 
     // ADR: stop() drains in-flight eachMessage handlers before disconnect, allowing
-    // already-processed offsets to be committed by KafkaJS auto-commit.
+    // explicit offset commit flow to finish for in-flight messages.
     this.shutdownPromise = (async () => {
       await this.consumer.stop().catch(() => undefined);
       await Promise.all([

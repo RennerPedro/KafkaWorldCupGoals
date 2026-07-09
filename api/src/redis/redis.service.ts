@@ -31,10 +31,38 @@ export class RedisService implements OnModuleDestroy {
     minute: number;
     timestamp: string;
     source: 'real' | 'simulated';
-  }): Promise<void> {
+  }): Promise<boolean> {
     const { matchId, homeTeam, awayTeam, homeScore, awayScore, minute, timestamp, source } =
       event;
-    await this.state.hset(`match:${matchId}`, {
+
+    const key = `match:${matchId}`;
+    const existing = await this.state.hmget(key, 'minute', 'timestamp');
+    const currentMinute = Number.parseInt(existing[0] ?? '', 10);
+    const hasCurrentMinute = Number.isFinite(currentMinute);
+
+    if (hasCurrentMinute && minute < currentMinute) {
+      this.logger.warn(
+        `Ignoring stale event for match=${matchId} incomingMinute=${minute} currentMinute=${currentMinute}`,
+      );
+      return false;
+    }
+
+    if (hasCurrentMinute && minute === currentMinute) {
+      const currentTimestampRaw = existing[1] ?? '';
+      const currentTimestamp = Date.parse(currentTimestampRaw);
+      const incomingTimestamp = Date.parse(timestamp);
+      const hasComparableTimestamps =
+        Number.isFinite(currentTimestamp) && Number.isFinite(incomingTimestamp);
+
+      if (hasComparableTimestamps && incomingTimestamp <= currentTimestamp) {
+        this.logger.warn(
+          `Ignoring stale same-minute event for match=${matchId} minute=${minute}`,
+        );
+        return false;
+      }
+    }
+
+    await this.state.hset(key, {
       matchId,
       homeTeam,
       awayTeam,
@@ -44,6 +72,7 @@ export class RedisService implements OnModuleDestroy {
       timestamp,
       source,
     });
+    return true;
   }
 
   async getMatchState(matchId: string): Promise<Record<string, string> | null> {

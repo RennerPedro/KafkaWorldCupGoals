@@ -6,13 +6,14 @@ import { ScoreEventEntity } from '../database/score-event.entity';
 import { RedisService } from '../redis/redis.service';
 
 export interface ScoreEvent {
+  eventId: string; // UUID v4, unique across all replays
   matchId: string;
   homeTeam: string;
   awayTeam: string;
   homeScore: number;
   awayScore: number;
   minute: number;
-  timestamp: string;
+  timestamp: string; // ISO 8601 from producer, not recorded_at
   source: 'real' | 'simulated';
 }
 
@@ -43,6 +44,13 @@ export class ScoresService {
   }
 
   async persistEvent(event: ScoreEvent): Promise<void> {
+    // ADR: attempt idempotent upsert via eventId; if duplicate, silently return.
+    // This allows reprocessing after Kafka rebalance without duplicating history.
+    const existing = await this.eventRepo.findOne({
+      where: { eventId: event.eventId },
+    });
+    if (existing) return;
+
     let match = await this.matchRepo.findOne({ where: { id: event.matchId } });
 
     if (!match) {
@@ -55,10 +63,12 @@ export class ScoresService {
     }
 
     const scoreEvent = this.eventRepo.create({
+      eventId: event.eventId,
       match,
       homeScore: event.homeScore,
       awayScore: event.awayScore,
       minute: event.minute,
+      timestamp: new Date(event.timestamp), // preserve producer timestamp
       source: event.source,
     });
     await this.eventRepo.save(scoreEvent);

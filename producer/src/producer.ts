@@ -1,6 +1,8 @@
 import { Kafka, Producer, logLevel } from 'kafkajs';
+import { randomUUID } from 'crypto';
 
 interface ScoreEvent {
+  eventId: string; // UUID v4 for idempotent replay
   matchId: string;
   homeTeam: string;
   awayTeam: string;
@@ -90,6 +92,7 @@ function estimateMinute(match: WorldCupApiMatch): number {
 
 function mapRealMatchToScoreEvent(match: WorldCupApiMatch): ScoreEvent {
   return {
+    eventId: randomUUID(),
     matchId: `wc-${match.id}`,
     homeTeam: match.homeTeam?.name ?? 'Unknown Home',
     awayTeam: match.awayTeam?.name ?? 'Unknown Away',
@@ -154,6 +157,7 @@ async function emitSimulatedTick(producer: Producer, topic: string): Promise<voi
   if (s.minute >= 90) s.finished = true;
 
   const event: ScoreEvent = {
+    eventId: randomUUID(),
     matchId: match.matchId,
     homeTeam: match.homeTeam,
     awayTeam: match.awayTeam,
